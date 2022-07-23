@@ -1,0 +1,13 @@
+name: Retry Artifacts
+description: When retrying a job, download artifacts from previous attempt
+author: hugues.bruant@affirm.com
+requirements:
+ - curl
+ - jq
+configuration:
+  properties:
+    pattern:
+      type: string
+    destination:
+      type: string
+  additionalProperties: false

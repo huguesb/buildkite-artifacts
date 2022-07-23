@@ -1,0 +1,49 @@
+#!/bin/bash
+
+set -euo pipefail
+
+# we only need to download artifacts when a job is being retried
+if [[ ${BUILDKITE_RETRY_COUNT-0} -eq 0 ]] ; then
+  exit  0
+fi
+
+set -x
+
+# extract plugin parameters from env
+conf=$BUILDKITE_PLUGIN_CONFIGURATION
+pattern=$(jq -r .pattern <<<"${conf}")
+dest=$(jq -r .destination <<<"${conf}")
+
+# retrieves all artifacts path/url for the last completed run of this particular step
+# NB: jobs are ordered by most recent creation, so "first: 1" returns the last run
+query=$(cat <<EOF
+{
+  build(uuid: "${BUILDKITE_BUILD_ID}") {
+    jobs(first: 1, state: FINISHED, step: { key: "${BUILDKITE_STEP_KEY}"}) {
+      edges { node {
+          ... on JobTypeCommand {
+            artifacts { edges { node {
+              path
+              downloadURL
+            } } }
+          }
+      } }
+    }
+  }
+}
+EOF
+)
+
+# escape raw GraphQL query into JSON
+json_query=$(jq -n -r --arg q "${query}" '{"query": $q}')
+
+# make graphQL query, match artifact pattern, and download
+curl --fail -sS -X POST -H "Authorization: Bearer ${BUILDKITE_ACCESS_TOKEN}" \
+  https://graphql.buildkite.com/v1/ -d "${json_query}" \
+| tee -a /dev/stderr \
+| jq -r ".data.build.jobs.edges[0].node.artifacts.edges[].node \
+         | select(.path | match(\"$pattern\")) \
+         | .downloadURL" \
+| tee -a /dev/stderr \
+| xargs -n 1 curl --fail -sS -O --create-dirs --output-dir "${dest}"
+
