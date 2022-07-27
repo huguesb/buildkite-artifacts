@@ -7,8 +7,6 @@ if [[ ${BUILDKITE_RETRY_COUNT-0} -eq 0 ]] ; then
   exit  0
 fi
 
-set -x
-
 # extract plugin parameters from env
 conf=$BUILDKITE_PLUGIN_CONFIGURATION
 pattern=$(jq -r .pattern <<<"${conf}")
@@ -45,5 +43,5 @@ curl --fail -sS -X POST -H "Authorization: Bearer ${BUILDKITE_ACCESS_TOKEN}" \
          | select(.path | match(\"$pattern\")) \
          | .downloadURL" \
 | tee -a /dev/stderr \
-| xargs -n 1 curl --fail -sS -O --create-dirs --output-dir "${dest}"
+| xargs -r -n 1 curl --fail -sS -O --create-dirs --output-dir "${dest}"
 
