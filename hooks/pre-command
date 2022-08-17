@@ -17,7 +17,7 @@ dest=$(jq -r .destination <<<"${conf}")
 query=$(cat <<EOF
 {
   build(uuid: "${BUILDKITE_BUILD_ID}") {
-    jobs(first: 1, state: FINISHED, step: { key: "${BUILDKITE_STEP_KEY}"}) {
+    jobs(first: 1, state: [FINISHED, TIMED_OUT], step: { key: "${BUILDKITE_STEP_KEY}"}) {
       edges { node {
           ... on JobTypeCommand {
             artifacts { edges { node {
@@ -39,7 +39,7 @@ json_query=$(jq -n -r --arg q "${query}" '{"query": $q}')
 curl --fail -sS -X POST -H "Authorization: Bearer ${BUILDKITE_ACCESS_TOKEN}" \
   https://graphql.buildkite.com/v1/ -d "${json_query}" \
 | tee -a /dev/stderr \
-| jq -r ".data.build.jobs.edges[0].node.artifacts.edges[].node \
+| jq -r ".data.build.jobs.edges[0]?.node?.artifacts?.edges[]?.node? \
          | select(.path | match(\"$pattern\")) \
          | .downloadURL" \
 | tee -a /dev/stderr \
