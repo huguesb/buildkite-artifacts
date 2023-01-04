@@ -14,12 +14,21 @@ dest=$(jq -r .destination <<<"${conf}")
 
 # retrieves all artifacts path/url for the last completed run of this particular step
 # NB: jobs are ordered by most recent creation, so "first: 1" returns the last run
+# NB: unfortunately, the BK API does not provide a way to filter jobs by parallel job
+# index, so if we happen to be in a parallel job, we need to retrieve all jobs instead
+# of just the latest, and then  use jq to filter out jobs for other parallel indices,
+# otherwise retries for parallelized jobs would pick a random retry file and be unlikely
+# to actually skip previously successful tests...
 query=$(cat <<EOF
 {
   build(uuid: "${BUILDKITE_BUILD_ID}") {
-    jobs(first: 1, state: [FINISHED, TIMED_OUT], step: { key: "${BUILDKITE_STEP_KEY}"}) {
+    jobs(first: 1${BUILDKITE_PARALLEL_JOB+00},
+         passed: false,
+         state: [FINISHED, TIMED_OUT],
+         step: { key: "${BUILDKITE_STEP_KEY}"}) {
       edges { node {
           ... on JobTypeCommand {
+            ${BUILDKITE_PARALLEL_JOB+parallelGroupIndex}
             artifacts { edges { node {
               path
               downloadURL
@@ -39,7 +48,9 @@ json_query=$(jq -n -r --arg q "${query}" '{"query": $q}')
 curl --fail -sS -X POST -H "Authorization: Bearer ${BUILDKITE_ACCESS_TOKEN}" \
   https://graphql.buildkite.com/v1/ -d "${json_query}" \
 | tee -a /dev/stderr \
-| jq -r ".data.build.jobs.edges[0]?.node?.artifacts?.edges[]?.node? \
+| jq -r ".data.build.jobs.edges? \
+         ${BUILDKITE_PARALLEL_JOB+| map(select(.node?.parallelGroupIndex == $BUILDKITE_PARALLEL_JOB))} \
+         | .[0].node?.artifacts?.edges[]?.node? \
          | select(.path | match(\"$pattern\")) \
          | .downloadURL" \
 | tee -a /dev/stderr \
